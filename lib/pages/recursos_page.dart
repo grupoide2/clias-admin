@@ -187,56 +187,86 @@ class _RecursosPageState extends State<RecursosPage> {
   void _verVistaPrevia(String slug, String tipo,
       {String? nombreArchivo, int? tamano}) {
     final url = _urlRecurso(slug);
+    final pantalla = MediaQuery.sizeOf(context);
+    final anchoDialog =
+        (pantalla.width * 0.92).clamp(280.0, 760.0).toDouble();
+    final altoStage = (pantalla.height * 0.72).clamp(220.0, 680.0).toDouble();
+    final meta = [
+      if (nombreArchivo != null && nombreArchivo.isNotEmpty) nombreArchivo,
+      if (tamano != null) _kb(tamano),
+    ].join('   ·   ');
+
     showDialog<void>(
       context: context,
       builder: (ctx) => Dialog(
         backgroundColor: Colors.white,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 720),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(children: [
-                  Expanded(
+        clipBehavior: Clip.antiAlias,
+        insetPadding: const EdgeInsets.all(24),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: SizedBox(
+          width: anchoDialog,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 10, 8, 8),
+                child: Row(
+                  children: [
+                    Expanded(
                       child: Text('Vista previa · $slug',
+                          overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
-                              fontWeight: FontWeight.bold, fontSize: 14))),
-                  IconButton(
-                      icon: const Icon(Icons.close),
-                      onPressed: () => Navigator.pop(ctx)),
-                ]),
-                const SizedBox(height: 8),
-                if (tipo == 'VIDEO')
-                  _VideoWeb(url: url)
-                else
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(maxHeight: 460),
-                    child: InteractiveViewer(
-                      child: Image.network(url,
-                          errorBuilder: (_, __, ___) => const Padding(
-                              padding: EdgeInsets.all(24),
-                              child:
-                                  Text('No se pudo cargar el archivo.'))),
+                              fontWeight: FontWeight.bold, fontSize: 14)),
                     ),
-                  ),
-                if ((nombreArchivo != null && nombreArchivo.isNotEmpty) ||
-                    tamano != null) ...[
-                  const SizedBox(height: 8),
-                  Text(
-                    [
-                      if (nombreArchivo != null && nombreArchivo.isNotEmpty)
-                        nombreArchivo,
-                      if (tamano != null) _kb(tamano),
-                    ].join(' · '),
-                    style:
-                        const TextStyle(fontSize: 12, color: Colors.black54),
-                  ),
-                ],
-              ],
-            ),
+                    IconButton(
+                        icon: const Icon(Icons.close),
+                        tooltip: 'Cerrar',
+                        onPressed: () => Navigator.pop(ctx)),
+                  ],
+                ),
+              ),
+              // Escenario tipo lightbox: el medio va centrado y ajustado (contain),
+              // con fondo neutro; sin espacios en blanco asimétricos.
+              Container(
+                width: double.infinity,
+                constraints: BoxConstraints(maxHeight: altoStage),
+                color: tipo == 'VIDEO'
+                    ? Colors.black
+                    : const Color(0xFFF1F3F5),
+                child: Center(
+                  child: tipo == 'VIDEO'
+                      ? _VideoWeb(
+                          url: url,
+                          maxWidth: anchoDialog,
+                          maxHeight: altoStage)
+                      : InteractiveViewer(
+                          child: Image.network(
+                            url,
+                            fit: BoxFit.contain,
+                            errorBuilder: (_, __, ___) => const Padding(
+                              padding: EdgeInsets.all(32),
+                              child: Text('No se pudo cargar el archivo.'),
+                            ),
+                            loadingBuilder: (_, child, progress) =>
+                                progress == null
+                                    ? child
+                                    : const Padding(
+                                        padding: EdgeInsets.all(48),
+                                        child: CircularProgressIndicator(),
+                                      ),
+                          ),
+                        ),
+                ),
+              ),
+              if (meta.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
+                  child: Text(meta,
+                      style: const TextStyle(
+                          fontSize: 12, color: Colors.black54)),
+                ),
+            ],
           ),
         ),
       ),
@@ -695,7 +725,13 @@ class _RecursosPageState extends State<RecursosPage> {
 /// Reproductor HTML5 embebido para la vista previa de videos (clias-admin es solo web).
 class _VideoWeb extends StatefulWidget {
   final String url;
-  const _VideoWeb({required this.url});
+  final double maxWidth;
+  final double maxHeight;
+  const _VideoWeb({
+    required this.url,
+    this.maxWidth = 640,
+    this.maxHeight = 380,
+  });
 
   @override
   State<_VideoWeb> createState() => _VideoWebState();
@@ -724,9 +760,16 @@ class _VideoWebState extends State<_VideoWeb> {
 
   @override
   Widget build(BuildContext context) {
+    // 16:9 dentro del espacio disponible del diálogo, centrado por el padre.
+    var w = widget.maxWidth;
+    var h = w * 9 / 16;
+    if (h > widget.maxHeight) {
+      h = widget.maxHeight;
+      w = h * 16 / 9;
+    }
     return SizedBox(
-      width: 640,
-      height: 380,
+      width: w,
+      height: h,
       child: HtmlElementView(viewType: _viewType),
     );
   }
