@@ -1,5 +1,9 @@
+import 'dart:html' as html;
+import 'dart:ui_web' as ui_web;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:telemedicina_web/config/env.dart';
 import 'package:telemedicina_web/models/recurso_multimedia.dart';
 import 'package:telemedicina_web/services/recurso_service.dart';
 
@@ -93,8 +97,10 @@ class RecursosPage extends StatefulWidget {
 
 class _RecursosPageState extends State<RecursosPage> {
   final _svc = RecursoService();
+  final _scroll = ScrollController();
   bool _loading = true;
   bool _subiendo = false;
+  bool _formResaltado = false;
   String? _error;
   List<RecursoMultimedia> _items = [];
 
@@ -114,6 +120,7 @@ class _RecursosPageState extends State<RecursosPage> {
 
   @override
   void dispose() {
+    _scroll.dispose();
     _slugCtrl.dispose();
     _categoriaCtrl.dispose();
     _descripcionCtrl.dispose();
@@ -126,6 +133,114 @@ class _RecursosPageState extends State<RecursosPage> {
     _destino = d.destino;
     _categoriaCtrl.text = d.categoria;
     _descripcionCtrl.text = d.descripcion;
+  }
+
+  /// Prellena el formulario con [d], sube la vista hasta él y lo resalta un instante.
+  void _prepararFormulario(_RecursoDef d) {
+    setState(() {
+      _prefillDesde(d);
+      _formResaltado = true;
+    });
+    _scroll.animateTo(0,
+        duration: const Duration(milliseconds: 350), curve: Curves.easeOut);
+    Future.delayed(const Duration(milliseconds: 1600), () {
+      if (mounted) setState(() => _formResaltado = false);
+    });
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Formulario listo para "${d.slug}"'),
+        duration: const Duration(seconds: 2)));
+  }
+
+  String _urlRecurso(String slug) => '${AppConfig.baseUrl}/recursos/$slug';
+
+  Widget _miniatura(String slug, String tipo, bool tieneArchivo) {
+    if (!tieneArchivo) {
+      return Icon(tipo == 'VIDEO' ? Icons.movie : Icons.image,
+          color: Colors.grey);
+    }
+    if (tipo == 'VIDEO') {
+      return Icon(Icons.play_circle_fill, color: _verde);
+    }
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(4),
+      child: Image.network(
+        _urlRecurso(slug),
+        width: 44,
+        height: 44,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) =>
+            const Icon(Icons.broken_image, color: Colors.grey),
+        loadingBuilder: (_, child, progress) => progress == null
+            ? child
+            : const SizedBox(
+                width: 44,
+                height: 44,
+                child: Center(
+                    child: SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2)))),
+      ),
+    );
+  }
+
+  void _verVistaPrevia(String slug, String tipo,
+      {String? nombreArchivo, int? tamano}) {
+    final url = _urlRecurso(slug);
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.white,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 720),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(children: [
+                  Expanded(
+                      child: Text('Vista previa · $slug',
+                          style: const TextStyle(
+                              fontWeight: FontWeight.bold, fontSize: 14))),
+                  IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.pop(ctx)),
+                ]),
+                const SizedBox(height: 8),
+                if (tipo == 'VIDEO')
+                  _VideoWeb(url: url)
+                else
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 460),
+                    child: InteractiveViewer(
+                      child: Image.network(url,
+                          errorBuilder: (_, __, ___) => const Padding(
+                              padding: EdgeInsets.all(24),
+                              child:
+                                  Text('No se pudo cargar el archivo.'))),
+                    ),
+                  ),
+                if ((nombreArchivo != null && nombreArchivo.isNotEmpty) ||
+                    tamano != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    [
+                      if (nombreArchivo != null && nombreArchivo.isNotEmpty)
+                        nombreArchivo,
+                      if (tamano != null) _kb(tamano),
+                    ].join(' · '),
+                    style:
+                        const TextStyle(fontSize: 12, color: Colors.black54),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _cargar() async {
@@ -227,6 +342,7 @@ class _RecursosPageState extends State<RecursosPage> {
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 900),
           child: SingleChildScrollView(
+            controller: _scroll,
             padding: const EdgeInsets.all(20),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -264,12 +380,16 @@ class _RecursosPageState extends State<RecursosPage> {
   }
 
   Widget _buildFormularioSubida() {
-    return Container(
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFFF5F5F5),
+        color:
+            _formResaltado ? const Color(0xFFFDECEA) : const Color(0xFFF5F5F5),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFCCCCCC)),
+        border: Border.all(
+            color: _formResaltado ? _rojo : const Color(0xFFCCCCCC),
+            width: _formResaltado ? 2 : 1),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -409,8 +529,10 @@ class _RecursosPageState extends State<RecursosPage> {
       margin: const EdgeInsets.symmetric(vertical: 3),
       child: ListTile(
         dense: true,
-        leading: Icon(d.tipo == 'VIDEO' ? Icons.movie : Icons.image,
-            color: ya ? _verde : Colors.grey),
+        leading: SizedBox(
+            width: 44,
+            height: 44,
+            child: Center(child: _miniatura(d.slug, d.tipo, ya))),
         title: Row(
           children: [
             Flexible(
@@ -424,9 +546,30 @@ class _RecursosPageState extends State<RecursosPage> {
           ],
         ),
         subtitle: Text(d.descripcion, style: const TextStyle(fontSize: 12)),
-        trailing: TextButton(
-          onPressed: () => setState(() => _prefillDesde(d)),
-          child: Text(ya ? 'Reemplazar' : 'Subir'),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (ya)
+              TextButton.icon(
+                style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+                icon: const Icon(Icons.visibility, size: 16),
+                label: const Text('Vista previa'),
+                onPressed: () => _verVistaPrevia(d.slug, d.tipo,
+                    nombreArchivo: subido.nombreArchivo,
+                    tamano: subido.tamano),
+              ),
+            TextButton(
+              style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+              onPressed: () => _prepararFormulario(d),
+              child: Text(ya ? 'Reemplazar' : 'Subir'),
+            ),
+          ],
         ),
       ),
     );
@@ -448,9 +591,15 @@ class _RecursosPageState extends State<RecursosPage> {
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 4),
       child: ListTile(
-        leading: Icon(
-          r.tipo == 'VIDEO' ? Icons.movie : Icons.image,
-          color: r.activo ? _azul : Colors.grey,
+        leading: SizedBox(
+          width: 44,
+          height: 44,
+          child: Center(
+            child: r.activo
+                ? _miniatura(r.slug, r.tipo, true)
+                : Icon(r.tipo == 'VIDEO' ? Icons.movie : Icons.image,
+                    color: Colors.grey),
+          ),
         ),
         title: Row(
           children: [
@@ -486,6 +635,12 @@ class _RecursosPageState extends State<RecursosPage> {
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
+            IconButton(
+              tooltip: 'Vista previa',
+              icon: const Icon(Icons.visibility, color: _azul),
+              onPressed: () => _verVistaPrevia(r.slug, r.tipo,
+                  nombreArchivo: r.nombreArchivo, tamano: r.tamano),
+            ),
             Switch(
               value: r.activo,
               activeThumbColor: _azul,
@@ -533,6 +688,46 @@ class _RecursosPageState extends State<RecursosPage> {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Reproductor HTML5 embebido para la vista previa de videos (clias-admin es solo web).
+class _VideoWeb extends StatefulWidget {
+  final String url;
+  const _VideoWeb({required this.url});
+
+  @override
+  State<_VideoWeb> createState() => _VideoWebState();
+}
+
+class _VideoWebState extends State<_VideoWeb> {
+  static final Set<String> _registrados = {};
+  late final String _viewType = 'recurso-video-${widget.url.hashCode}';
+
+  @override
+  void initState() {
+    super.initState();
+    if (_registrados.add(_viewType)) {
+      final src = widget.url;
+      ui_web.platformViewRegistry.registerViewFactory(_viewType, (int _) {
+        return html.VideoElement()
+          ..src = src
+          ..controls = true
+          ..style.width = '100%'
+          ..style.height = '100%'
+          ..style.border = 'none'
+          ..style.backgroundColor = '#000';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 640,
+      height: 380,
+      child: HtmlElementView(viewType: _viewType),
     );
   }
 }
