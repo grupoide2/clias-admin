@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:typed_data';
+import 'package:file_picker/file_picker.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 import 'package:universal_html/html.dart' as html;
@@ -98,23 +99,34 @@ class RecursoService {
     }
   }
 
-  /// Selector de archivo en el navegador; devuelve null si el usuario cancela.
+  /// Selector de archivo (web) vía file_picker; devuelve null si se cancela.
+  /// `withData` trae los bytes en memoria sin pasar por FileReader/ByteBuffer.
   static Future<({Uint8List bytes, String name, String type})?> pickFile(
-      String accept) async {
-    final input = html.FileUploadInputElement()..accept = accept;
-    input.click();
-    await input.onChange.first;
-    final files = input.files;
-    if (files == null || files.isEmpty) return null;
-    final file = files.first;
-    final reader = html.FileReader()..readAsArrayBuffer(file);
-    await reader.onLoad.first;
-    final bytes = Uint8List.fromList((reader.result as ByteBuffer).asUint8List());
-    return (
-      bytes: bytes,
-      name: file.name,
-      type: file.type.isNotEmpty ? file.type : 'application/octet-stream',
+      bool esVideo) async {
+    final result = await FilePicker.platform.pickFiles(
+      type: esVideo ? FileType.video : FileType.image,
+      withData: true,
     );
+    final files = result?.files ?? const <PlatformFile>[];
+    if (files.isEmpty || files.first.bytes == null) return null;
+    final f = files.first;
+    return (bytes: f.bytes!, name: f.name, type: _mimeDeNombre(f.name));
+  }
+
+  static String _mimeDeNombre(String nombre) {
+    final ext = nombre.contains('.') ? nombre.split('.').last.toLowerCase() : '';
+    const mimes = {
+      'mp4': 'video/mp4',
+      'webm': 'video/webm',
+      'mov': 'video/quicktime',
+      'm4v': 'video/x-m4v',
+      'jpg': 'image/jpeg',
+      'jpeg': 'image/jpeg',
+      'png': 'image/png',
+      'webp': 'image/webp',
+      'gif': 'image/gif',
+    };
+    return mimes[ext] ?? 'application/octet-stream';
   }
 }
 

@@ -159,11 +159,14 @@ class _RecursosPageState extends State<RecursosPage> {
   Future<void> _subir() async {
     final slug = _slugCtrl.text.trim();
     if (slug.isEmpty) return;
-    final accept = _tipo == 'VIDEO' ? 'video/*' : 'image/*';
-    final picked = await RecursoService.pickFile(accept);
-    if (picked == null) return;
     setState(() => _subiendo = true);
     try {
+      final picked = await RecursoService.pickFile(_tipo == 'VIDEO');
+      if (picked == null) return;
+      if (picked.bytes.length > 60 * 1024 * 1024) {
+        throw Exception(
+            'El archivo pesa ${_kb(picked.bytes.length)}; el máximo permitido es 60 MB.');
+      }
       await _svc.subir(
         slug: slug,
         tipo: _tipo,
