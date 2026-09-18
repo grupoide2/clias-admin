@@ -25,8 +25,12 @@ class _RecursoDef {
 
 const _manifiesto = <_RecursoDef>[
   // ── clias-app (SISA) ──────────────────────────────────────────────────────
-  _RecursoDef('video_uso_app', 'APP', 'Video de uso', 'VIDEO',
-      'Video guía del automuestreo — se muestra en el chatbot y en el dashboard de la app.'),
+  _RecursoDef('video_uso_app', 'APP', 'Video guía del automuestreo', 'VIDEO',
+      'Video guía del automuestreo — se muestra en el chatbot y en el dashboard de la app. '
+      'No es el tutorial general de uso (ese es "video_tutorial_app", abajo).'),
+  _RecursoDef('video_tutorial_app', 'APP', 'Tutorial de uso de la app', 'VIDEO',
+      'Tutorial general de uso de SISA — se muestra al tocar el botón de ayuda "?" '
+      'de la barra superior, en varias pantallas.'),
   _RecursoDef('app_video_automuestreo', 'APP', 'Video educativo', 'VIDEO',
       'Video "Automuestreo" — carrusel de la pantalla Recursos de la app.'),
   _RecursoDef('app_video_ccu', 'APP', 'Video educativo', 'VIDEO',
