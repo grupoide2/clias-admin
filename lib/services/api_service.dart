@@ -119,6 +119,7 @@ class ApiService {
     required String mensaje,
     required String tipoAccion,
     required String accionUrl,
+    String? dispositivo,
   }) async {
     final uri = Uri.parse(
       '${_baseUrl.replaceFirst('/api', '')}/notificaciones',
@@ -131,6 +132,7 @@ class ApiService {
       'mensaje': mensaje,
       'tipoAccion': tipoAccion,
       'accion': accionUrl,
+      if (dispositivo != null) 'dispositivo': dispositivo,
     });
 
     final response = await http.post(uri, headers: _authHeaders, body: body);

@@ -34,6 +34,12 @@ class _SearchPageState extends State<SearchPage> {
   String? _pacienteNombre;
   String? _pacienteId;
 
+  /// Código de dispositivo (prefijo+sufijo) para el que _pacienteNombre/_pacienteId
+  /// son válidos. Se fija únicamente al terminar una búsqueda exitosa y se usa
+  /// para impedir generar el PDF o subir/notificar con un paciente obsoleto si
+  /// el código fue editado después de buscar.
+  String? _dispositivoBuscado;
+
   String? _resultadoTipo;
   Uint8List? _pdfGeneradoBytes;
   String? _pdfUrl;
@@ -69,6 +75,7 @@ class _SearchPageState extends State<SearchPage> {
   @override
   void initState() {
     super.initState();
+    _ctrl.addListener(_onCodigoChanged);
     _loadFont();
     _loadPrefixes().then((_) {
       // Si viene initialCode, lo prellenamos y buscamos
@@ -108,9 +115,40 @@ class _SearchPageState extends State<SearchPage> {
 
   @override
   void dispose() {
+    _ctrl.removeListener(_onCodigoChanged);
     _ctrl.dispose();
     if (_pdfUrl != null) html.Url.revokeObjectUrl(_pdfUrl!);
     super.dispose();
+  }
+
+  String? _fullCodeActual() {
+    final suffix = _ctrl.text.trim();
+    if (_selectedPrefix == null || suffix.isEmpty) return null;
+    return '$_selectedPrefix$suffix';
+  }
+
+  /// Se llama cuando cambia el texto del código de dispositivo. Si el código
+  /// ya no coincide con el de la última búsqueda exitosa, se invalida el
+  /// paciente/PDF en memoria para no mostrar ni subir datos de otra persona.
+  void _onCodigoChanged() {
+    if (_dispositivoBuscado != null && _dispositivoBuscado != _fullCodeActual()) {
+      setState(() {
+        _pacienteNombre = null;
+        _pacienteId = null;
+        _dispositivoBuscado = null;
+        _resultadoTipo = null;
+        _genotiposSeleccionados = [];
+        _pdfGeneradoBytes = null;
+        if (_pdfUrl != null) {
+          html.Url.revokeObjectUrl(_pdfUrl!);
+          _pdfUrl = null;
+        }
+      });
+    } else {
+      // Fuerza un rebuild para que el estado habilitado/deshabilitado de los
+      // botones refleje el texto que se está escribiendo en este momento.
+      setState(() {});
+    }
   }
 
   Future<void> _searchDevice() async {
@@ -123,6 +161,7 @@ class _SearchPageState extends State<SearchPage> {
       _error = null;
       _pacienteNombre = null;
       _pacienteId = null;
+      _dispositivoBuscado = null;
       _resultadoTipo = null;
       _pdfGeneradoBytes = null;
       _genotiposSeleccionados = [];
@@ -135,11 +174,17 @@ class _SearchPageState extends State<SearchPage> {
     try {
       final nombre = await ApiService().fetchPatientNameFromExamenVph(fullCode);
       final id = await ApiService().fetchPatientIdFromDevice(fullCode);
+      // Si el usuario ya cambió el código mientras la búsqueda estaba en
+      // vuelo, esta respuesta quedó obsoleta: se descarta en vez de pisar
+      // el estado del código que ahora está escrito.
+      if (_fullCodeActual() != fullCode) return;
       setState(() {
         _pacienteNombre = nombre;
         _pacienteId = id;
+        _dispositivoBuscado = fullCode;
       });
     } catch (e) {
+      if (_fullCodeActual() != fullCode) return;
       setState(() {
         _error = 'No se encontró examen o dispositivo';
       });
@@ -167,6 +212,14 @@ class _SearchPageState extends State<SearchPage> {
       _showDialog(
         'Error',
         'Debe buscar y seleccionar un paciente y diagnóstico antes.',
+      );
+      return;
+    }
+    if (_dispositivoBuscado == null || _dispositivoBuscado != _fullCodeActual()) {
+      _showDialog(
+        'Error',
+        'El código de dispositivo cambió después de la última búsqueda. '
+        'Vuelve a presionar "Buscar" para confirmar el paciente antes de generar el PDF.',
       );
       return;
     }
@@ -384,12 +437,24 @@ class _SearchPageState extends State<SearchPage> {
       _showDialog('Error', 'Selecciona al menos un genotipo detectado');
       return;
     }
+    final codigoActual = _fullCodeActual();
+    if (_pacienteId == null ||
+        _dispositivoBuscado == null ||
+        _dispositivoBuscado != codigoActual) {
+      _showDialog(
+        'Error',
+        'El código de dispositivo cambió después de la última búsqueda. '
+        'Vuelve a presionar "Buscar" y a generar el PDF antes de subir, para '
+        'evitar notificar al paciente equivocado.',
+      );
+      return;
+    }
     setState(() => _loadingUpload = true);
     try {
       await ApiService().uploadResultadoMedico(
         fileBytes: _pdfGeneradoBytes!,
         fileName: 'resultado_vph_${_ctrl.text.trim()}.pdf',
-        dispositivo: '$_selectedPrefix${_ctrl.text.trim()}',
+        dispositivo: codigoActual!,
         diagnostico: _resultadoTipo!,
         genotipos: _genotiposSeleccionados,
       );
@@ -401,6 +466,7 @@ class _SearchPageState extends State<SearchPage> {
           mensaje:'Ya puedes consultar el resultado de tu examen desde la aplicación. Haz clic aquí para revisarlo.',
           tipoAccion: 'VER_RESULTADOS',
           accionUrl: 'https://miapp.com/video-tutorial',
+          dispositivo: codigoActual,
         );
 
         _showDialog('Éxito', 'Resultado subido y notificación enviada.');
@@ -411,11 +477,19 @@ class _SearchPageState extends State<SearchPage> {
         );
       }
     
+      // Se limpia también el paciente/código buscado: así, tras una subida
+      // exitosa, la pantalla no puede quedar mostrando (ni reutilizando) el
+      // nombre/id de este paciente para un dispositivo distinto si el
+      // usuario médico escribe un nuevo código sin presionar "Buscar".
+      _ctrl.text = '';
       setState(() {
         _pdfGeneradoBytes = null;
         _pdfUrl = null;
         _resultadoTipo = null;
         _genotiposSeleccionados = [];
+        _pacienteNombre = null;
+        _pacienteId = null;
+        _dispositivoBuscado = null;
       });
     } catch (e) {
       _showDialog('Error', 'Error al subir: $e');
@@ -466,6 +540,9 @@ class _SearchPageState extends State<SearchPage> {
 
   @override
   Widget build(BuildContext context) {
+    final codigoActual = _fullCodeActual();
+    final datosDesactualizados =
+        _dispositivoBuscado == null || _dispositivoBuscado != codigoActual;
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
@@ -550,7 +627,10 @@ class _SearchPageState extends State<SearchPage> {
                                     ),
                                   )
                                   .toList(),
-                          onChanged: (v) => setState(() => _selectedPrefix = v),
+                          onChanged: (v) {
+                            setState(() => _selectedPrefix = v);
+                            _onCodigoChanged();
+                          },
                         ),
                         const SizedBox(width: 8),
                         Expanded(
@@ -611,6 +691,17 @@ class _SearchPageState extends State<SearchPage> {
                         fontWeight: FontWeight.bold,
                       ),
                     ),
+                    if (datosDesactualizados) ...[
+                      const SizedBox(height: 8),
+                      const Text(
+                        'El código de dispositivo cambió. Presiona "Buscar" de '
+                        'nuevo para confirmar el paciente antes de continuar.',
+                        style: TextStyle(
+                          color: Colors.redAccent,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 16),
 
                     // Selección de resultado
@@ -782,7 +873,7 @@ class _SearchPageState extends State<SearchPage> {
 
                     const SizedBox(height: 24),
                     ElevatedButton.icon(
-                      onPressed: _generarPdf,
+                      onPressed: datosDesactualizados ? null : _generarPdf,
                       icon: const Icon(Icons.picture_as_pdf),
                       label: const Text('Generar PDF'),
                       style: ElevatedButton.styleFrom(
@@ -838,7 +929,10 @@ class _SearchPageState extends State<SearchPage> {
 
                     const SizedBox(height: 16),
                     ElevatedButton.icon(
-                      onPressed: _loadingUpload ? null : _uploadResult,
+                      onPressed:
+                          (_loadingUpload || datosDesactualizados)
+                              ? null
+                              : _uploadResult,
                       icon: const Icon(Icons.upload_file),
                       label:
                           _loadingUpload
